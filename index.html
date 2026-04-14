@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Voice + Image Chatbot</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: Arial, sans-serif;
+    }
+
+    body {
+      margin: 0;
+      background: linear-gradient(135deg, #dbeafe, #e0e7ff);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .chat-container {
+      width: 440px;
+      height: 700px;
+      background: white;
+      border-radius: 22px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .chat-header {
+      background: #4f46e5;
+      color: white;
+      padding: 16px;
+      text-align: center;
+      font-size: 22px;
+      font-weight: bold;
+    }
+
+    .chat-box {
+      flex: 1;
+      padding: 14px;
+      overflow-y: auto;
+      background: #f8fafc;
+    }
+
+    .message {
+      display: flex;
+      margin: 10px 0;
+    }
+
+    .user {
+      justify-content: flex-end;
+    }
+
+    .bot {
+      justify-content: flex-start;
+    }
+
+    .bubble {
+      max-width: 82%;
+      padding: 12px 14px;
+      border-radius: 16px;
+      line-height: 1.5;
+      font-size: 14px;
+      word-wrap: break-word;
+    }
+
+    .user .bubble {
+      background: #4f46e5;
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+
+    .bot .bubble {
+      background: #e5e7eb;
+      color: #111827;
+      border-bottom-left-radius: 4px;
+    }
+
+    .bot .bubble p {
+      margin: 6px 0;
+    }
+
+    .bot .bubble ul {
+      margin: 6px 0 6px 20px;
+      padding: 0;
+    }
+
+    .preview-box {
+      padding: 10px 14px;
+      border-top: 1px solid #e5e7eb;
+      background: #ffffff;
+    }
+
+    .preview-box img {
+      max-width: 120px;
+      max-height: 120px;
+      border-radius: 10px;
+      border: 1px solid #ddd;
+      display: none;
+    }
+
+    .controls {
+      padding: 10px;
+      border-top: 1px solid #e5e7eb;
+      background: white;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .controls input[type="text"] {
+      flex: 1;
+      padding: 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      outline: none;
+      font-size: 14px;
+    }
+
+    .btn {
+      border: none;
+      border-radius: 12px;
+      padding: 11px 12px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    .send-btn {
+      background: #4f46e5;
+      color: white;
+    }
+
+    .mic-btn {
+      background: #0ea5e9;
+      color: white;
+    }
+
+    .upload-btn {
+      background: #10b981;
+      color: white;
+    }
+
+    .clear-btn {
+      background: #ef4444;
+      color: white;
+    }
+
+    .status {
+      font-size: 12px;
+      color: #475569;
+      padding: 0 14px 10px;
+      background: white;
+    }
+
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="chat-container">
+    <div class="chat-header">AI Chatbot 🤖</div>
+
+    <div class="chat-box" id="chatbox"></div>
+
+    <div class="preview-box">
+      <img id="previewImage" alt="Preview" />
+    </div>
+
+    <div class="controls">
+      <input type="text" id="input" placeholder="Type message..." />
+      <input type="file" id="imageInput" accept="image/*" class="hidden" />
+      <button class="btn upload-btn" onclick="document.getElementById('imageInput').click()">📷</button>
+      <button class="btn mic-btn" id="micBtn">🎤</button>
+      <button class="btn send-btn" onclick="sendMessage()">Send</button>
+      <button class="btn clear-btn" onclick="clearImage()">X</button>
+    </div>
+
+    <div class="status" id="status">Ready</div>
+  </div>
+
+  <script>
+    const input = document.getElementById("input");
+    const chatbox = document.getElementById("chatbox");
+    const imageInput = document.getElementById("imageInput");
+    const previewImage = document.getElementById("previewImage");
+    const statusBox = document.getElementById("status");
+    const micBtn = document.getElementById("micBtn");
+
+    let uploadedImageBase64 = null;
+    let uploadedImageMime = null;
+
+    function setStatus(text) {
+      statusBox.textContent = text;
+    }
+
+    function escapeHtml(text) {
+      return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    function formatBotResponse(text) {
+      text = escapeHtml(text);
+
+      text = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+      text = text.replace(/^### (.*)$/gm, "<h3>$1</h3>");
+      text = text.replace(/^## (.*)$/gm, "<h2>$1</h2>");
+      text = text.replace(/^# (.*)$/gm, "<h1>$1</h1>");
+
+      // bullet points
+      text = text.replace(/^- (.*)$/gm, "<li>$1</li>");
+      text = text.replace(/(<li>.*<\/li>)/gs, "<ul>$1</ul>");
+
+      // paragraphs
+      const blocks = text.split(/\n\s*\n/).map(block => {
+        if (
+          block.startsWith("<h1>") ||
+          block.startsWith("<h2>") ||
+          block.startsWith("<h3>") ||
+          block.startsWith("<ul>")
+        ) {
+          return block;
+        }
+        return `<p>${block.replace(/\n/g, "<br>")}</p>`;
+      });
+
+      return blocks.join("");
+    }
+
+    function addUserMessage(message, imageData = null) {
+      let imageHtml = "";
+      if (imageData) {
+        imageHtml = `<div style="margin-top:8px;"><img src="${imageData}" style="max-width:140px;border-radius:10px;"></div>`;
+      }
+
+      chatbox.innerHTML += `
+        <div class="message user">
+          <div class="bubble">
+            ${escapeHtml(message || "Uploaded image")}
+            ${imageHtml}
+          </div>
+        </div>
+      `;
+      chatbox.scrollTop = chatbox.scrollHeight;
+    }
+
+    function addBotMessage(message) {
+      chatbox.innerHTML += `
+        <div class="message bot">
+          <div class="bubble">${formatBotResponse(message)}</div>
+        </div>
+      `;
+      chatbox.scrollTop = chatbox.scrollHeight;
+      speakText(message);
+    }
+
+    function clearImage() {
+      uploadedImageBase64 = null;
+      uploadedImageMime = null;
+      imageInput.value = "";
+      previewImage.src = "";
+      previewImage.style.display = "none";
+      setStatus("Image cleared");
+    }
+
+    imageInput.addEventListener("change", function () {
+      const file = this.files[0];
+      if (!file) return;
+
+      uploadedImageMime = file.type;
+
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        uploadedImageBase64 = e.target.result;
+        previewImage.src = uploadedImageBase64;
+        previewImage.style.display = "block";
+        setStatus("Image selected");
+      };
+      reader.readAsDataURL(file);
+    });
+
+    async function sendMessage() {
+      const message = input.value.trim();
+
+      if (!message && !uploadedImageBase64) {
+        setStatus("Type message or upload image");
+        return;
+      }
+
+      addUserMessage(message, uploadedImageBase64);
+
+      input.value = "";
+      setStatus("Sending...");
+
+      try {
+        const response = await fetch("http://127.0.0.1:5000/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: message,
+            image_data: uploadedImageBase64,
+            image_mime: uploadedImageMime
+          })
+        });
+
+        const data = await response.json();
+        addBotMessage(data.reply || "No reply");
+        setStatus("Ready");
+
+        // optional: image clear after send
+        clearImage();
+      } catch (error) {
+        addBotMessage("Error connecting to server.");
+        setStatus("Connection error");
+      }
+    }
+
+    input.addEventListener("keypress", function (e) {
+      if (e.key === "Enter") {
+        sendMessage();
+      }
+    });
+
+    // Voice input using Web Speech API
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.lang = "en-US";
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      micBtn.addEventListener("click", () => {
+        recognition.start();
+        setStatus("Listening...");
+      });
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        input.value = transcript;
+        setStatus("Voice captured");
+      };
+
+      recognition.onerror = (event) => {
+        setStatus("Mic error: " + event.error);
+      };
+
+      recognition.onend = () => {
+        if (statusBox.textContent === "Listening...") {
+          setStatus("Ready");
+        }
+      };
+    } else {
+      micBtn.disabled = true;
+      setStatus("Speech recognition not supported in this browser");
+    }
+
+    // Bot text-to-speech
+    function speakText(text) {
+      if (!("speechSynthesis" in window)) return;
+
+      const cleanText = text.replace(/[#*`>-]/g, " ");
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.lang = "en-US";
+      window.speechSynthesis.speak(utterance);
+    }
+  </script>
+</body>
+</html>
